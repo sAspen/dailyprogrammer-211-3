@@ -1,91 +1,131 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace PuppyFeeder
 {
-    public class TreatDistribution : IEquatable<TreatDistribution>
+    static class Extensions
     {
-        internal string Distribution;
+        private static Random RNG;
+
+        static Extensions()
+        {
+            RNG = new Random();
+        }
+
+        public static T[] SubArray<T>(this T[] data, int index, int length)
+        {
+            T[] result = new T[length];
+            Array.Copy(data, index, result, 0, length);
+            return result;
+        }
+
+        public static void Shuffle<T>(this T[] array)
+        {
+            int n = array.Length;
+            while (n > 1)
+            {
+                n--;
+                int k = RNG.Next(n + 1);
+                T value = array[k];
+                array[k] = array[n];
+                array[n] = value;
+            }
+        }
+
+        public static T[] CopyShuffle<T>(this T[] array)
+        {
+            T[] shuffled = (T[])array.Clone();
+            int n = shuffled.Length;
+            while (n > 1)
+            {
+                n--;
+                int k = RNG.Next(n + 1);
+                T value = shuffled[k];
+                shuffled[k] = shuffled[n];
+                shuffled[n] = value;
+            }
+            return shuffled;
+        }
+    }
+
+    public class TreatDistribution : IEquatable<TreatDistribution>, ICloneable
+    {
+        internal char[] Distribution;
         internal int Happiness;
-        internal uint PuppiesFed;
-        private uint[] Treats;
+        internal int Fitness;
+        private bool GoodLeftEdge, GoodRightEdge;
 
-        public TreatDistribution(uint[] treats)
+        public TreatDistribution(char[] distribution)
         {
-            Distribution = "";
-            Happiness = 0;
-            PuppiesFed = 0;
+            Distribution = distribution.Clone() as char[];
 
-            Treats = (uint[])treats.Clone();
+            GoodLeftEdge = GoodRightEdge = false;
+
+            Recalculate();
         }
 
-        public TreatDistribution(string distribution, uint[] treats, uint newest)
+        internal void Recalculate()
         {
-            Distribution = distribution + newest;
-            PuppiesFed = (uint)Distribution.Length;
+            Happiness = CalculateHappiness();
 
-            Treats = (uint[])treats.Clone();
-            
-            Treats[newest]--;
 
-            CalculateHappiness();
+            int goodEdgeAdvantage = 0;
+            Fitness = Happiness + Distribution.Length + 1;
+            if (GoodLeftEdge)
+            {
+                Fitness += goodEdgeAdvantage;
+            }
+            if (GoodRightEdge)
+            {
+                Fitness += goodEdgeAdvantage;
+            }
         }
 
-        private void CalculateHappiness()
-        {
-            Happiness = CalculateHappiness(Distribution);
-        }
-
-        public static int CalculateHappiness(string distribution)
+        private int CalculateHappiness()
         {
             int ret = 0;
 
-            for (int i = 0; i < distribution.Length; i++)
+            for (int i = 0; i < Distribution.Length; i++)
             {
-                uint cur = (uint)Char.GetNumericValue(distribution[i]);
-                int mood = 0;
-                int neighbors = 0;
-                if (i - 1 >= 0)
-                {
-                    neighbors++;
+                uint cur = (uint)Char.GetNumericValue(Distribution[i]);
 
-                    uint left = (uint)Char.GetNumericValue(distribution[i - 1]);
-                    if (cur > left)
-                    {
-                        mood++;
-                    }
-                    else if (cur < left)
-                    {
-                        mood--;
-                    }
-                }
-                if (i + 1 < distribution.Length)
-                {
-                    neighbors++;
+                uint? left = ((i - 1 >= 0) ? (uint)Char.GetNumericValue(Distribution[i - 1]) : (uint?)null);
+                uint? right = ((i + 1 < Distribution.Length) ? (uint)Char.GetNumericValue(Distribution[i + 1]) : (uint?)null);
 
-                    uint right = (uint)Char.GetNumericValue(distribution[i + 1]);
-                    if (cur > right)
-                    {
-                        mood++;
-                    }
-                    else if (cur < right)
-                    {
-                        mood--;
-                    }
-                }
-
-                if (Math.Abs(mood) == neighbors)
+                if (left != null && right != null)
                 {
-                    if (mood < 0)
+                    if (cur > left && cur > right)
+                    {
+                        ret++;
+                    }
+                    else if (cur < left && cur < right)
                     {
                         ret--;
                     }
-                    else if (mood > 0)
+                }
+                else if (left != null)
+                {
+                    if (cur > left)
                     {
                         ret++;
+                        GoodRightEdge = true;
+                    }
+                    else if (cur < left)
+                    {
+                        ret--;
+                    }
+                }
+                else if (right != null)
+                {
+                    if (cur > right)
+                    {
+                        ret++;
+                        GoodLeftEdge = true;
+                    }
+                    else if (cur < right)
+                    {
+                        ret--;
                     }
                 }
             }
@@ -93,28 +133,11 @@ namespace PuppyFeeder
             return ret;
         }
 
-        public Stack<TreatDistribution> GenerateSuccessors()
-        {
-            Stack<TreatDistribution> successors = new Stack<TreatDistribution>();
-
-            for (uint i = 0; i < Treats.Length; i++)
-            {
-                if (Treats[i] == 0)
-                {
-                    continue;
-                }
-
-                successors.Push(new TreatDistribution(Distribution, Treats, i));
-            }
-
-            return successors;
-        }
-        
         public override string ToString()
         {
             string s = "";
 
-            s += Happiness + "\n";
+            s += Happiness + ", \n";
             foreach (char c in Distribution)
             {
                 s += c + " ";
@@ -142,72 +165,176 @@ namespace PuppyFeeder
             // Check whether the objects’ properties are equal.
             return Distribution.Equals(other.Distribution);
         }
+
+        public object Clone()
+        {
+            return new TreatDistribution(Distribution) as object;
+        }
     }
 
     public class TreatDistributionFinder
     {
-        private string ParameterDistribution;
-        private uint NumberOfPuppies;
-        private uint[] Treats;
+        private char[] ParameterDistribution;
+        private uint[] TreatCounts;
+        private Random RNG;
 
         public TreatDistributionFinder(string parameterDistribution)
         {
-            ParameterDistribution = parameterDistribution;
-            
             string[] tokens = parameterDistribution.Split();
-            NumberOfPuppies = (uint)tokens.Length;
+
+            ParameterDistribution = new char[tokens.Length];
 
             uint max = 0;
+            int i = 0;
             foreach (string s in tokens)
             {
-                max = Math.Max(max, Convert.ToUInt32(s));
+                ParameterDistribution[i++] = s[0];
+                uint j = (uint)Char.GetNumericValue(s[0]);
+                max = Math.Max(max, j);
             }
 
-            Treats = new uint[max + 1];
+            TreatCounts = CountTreats(ParameterDistribution, max + 1);
 
-
-            foreach (string s in tokens)
-            {
-                Treats[Convert.ToUInt32(s)]++;
-            }
-
-            
+            RNG = new Random((int)DateTime.Now.Ticks & 0x0000FFFF);
         }
+
+        private static uint[] CountTreats(char[] distribution, uint max)
+        {
+            uint[] treatCounts = new uint[max];
+            foreach (char c in distribution)
+            {
+                int i = (int)Char.GetNumericValue(c);
+                treatCounts[i]++;
+            }
+
+            treatCounts[0] = 0;
+            return treatCounts;
+        }
+
+        private TreatDistribution SelectParent(List<TreatDistribution> population)
+        {
+            int fitnessSum = population.Sum(d => d.Fitness);
+            int target = RNG.Next(fitnessSum);
+
+            int sum = 0;
+            foreach (TreatDistribution d in population)
+            {
+                sum += d.Fitness;
+                if (sum > target)
+                {
+                    return d;
+                }
+            }
+
+            return population.First();
+        }
+
+        private char[] createOffspring(TreatDistribution parent1, TreatDistribution parent2)
+        {
+            TreatDistribution[] parents = { parent1, parent2 };
+            char[] chromosomes = new char[parent1.Distribution.Length];
+            uint[] remainingTreats = TreatCounts.Clone() as uint[];
+
+
+
+            for (int i = 0; i < chromosomes.Length; i++)
+            {
+                int p = RNG.Next(2);
+                uint t = (uint)Char.GetNumericValue(parents[p].Distribution[i]);
+
+                if (remainingTreats[t] > 0)
+                {
+                    chromosomes[i] = parents[p].Distribution[i];
+                    remainingTreats[t]--;
+                }
+                else
+                {
+                    while (true)
+                    {
+                        int j = RNG.Next(remainingTreats.Length);
+                        if (remainingTreats[j] > 0)
+                        {
+                            chromosomes[i] = j.ToString()[0];
+                            remainingTreats[j]--;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            for (int i = RNG.Next(-5, 5); i > 0; i--)
+            {
+                char c1, c2, temp;
+                c1 = chromosomes[RNG.Next(chromosomes.Length)];
+                c2 = chromosomes[RNG.Next(chromosomes.Length)];
+
+                temp = c1;
+                c1 = c2;
+                c2 = c1;
+            }
+
+            return chromosomes;
+        }
+
+        public TreatDistribution RunGeneticAlgorithm()
+        {
+            const uint populationSize = 160, lastGeneration = 1000;
+
+            List<TreatDistribution> population = new List<TreatDistribution>((int)populationSize);
+            for (uint i = 0; i < populationSize; i++)
+            {
+                TreatDistribution d = new TreatDistribution(ParameterDistribution);
+                population.Add(d);
+            }
+
+            foreach (TreatDistribution d in population)
+            {
+                d.Distribution.Shuffle();
+                d.Recalculate();
+            }
+
+            TreatDistribution elite = null;
+            uint generation = 0;
+            List<TreatDistribution> newPopulation = new List<TreatDistribution>((int)populationSize - 1);
+            while (true)
+            {
+                population = population.OrderByDescending(d => d.Fitness).ToList();
+                newPopulation.Clear();
+
+                if (elite == null || elite.Fitness < population.First().Fitness)
+                {
+                    elite = population.First();
+                }
+                newPopulation.Insert(0, elite.Clone() as TreatDistribution);
+
+                if (generation++ == lastGeneration)
+                {
+                    return elite;
+                }
+
+                newPopulation.AddRange(population.GetRange(0, (int)(populationSize / 2 - 1)));
+
+                for (uint i = 0; i < populationSize / 2; i++)
+                {
+                    TreatDistribution parent1, parent2;
+                    parent1 = SelectParent(population);
+                    do
+                    {
+                        parent2 = SelectParent(population);
+                    } while (Object.ReferenceEquals(parent1, parent2));
+
+
+                    newPopulation.Add(new TreatDistribution(createOffspring(parent1, parent2)));
+                }
+
+                population = newPopulation;
+            }
+        }
+
 
         public TreatDistribution findOptimalDistribution()
         {
-            HashSet<TreatDistribution> closed = new HashSet<TreatDistribution>();
-            Stack<TreatDistribution> candidates = new Stack<TreatDistribution>();
-            TreatDistribution distribution = new TreatDistribution(Treats);
-            candidates.Push(distribution);
-
-            TreatDistribution best = distribution;
-            while (candidates.Count > 0)
-            {
-                //distribution = candidates.OrderByDescending(c => c.Happiness).ToList().First();
-                distribution = candidates.Pop();
-
-                if (distribution.PuppiesFed == NumberOfPuppies && distribution.Happiness > best.Happiness)
-                {
-                    best = distribution;
-                }
-
-                closed.Add(distribution);
-
-                Stack<TreatDistribution> successors = distribution.GenerateSuccessors();
-                while (successors.Count > 0)
-                {
-                    TreatDistribution d = successors.Pop();
-                    if (!closed.Contains(d))
-                    {
-                        candidates.Push(d);
-                    }
-                }
-
-                //candidates.AddRange(distribution.GenerateSuccessors().Except(closed));
-            }
-
-            return best;
+            return RunGeneticAlgorithm();
         }
     }
 }
